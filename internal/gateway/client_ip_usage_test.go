@@ -83,4 +83,22 @@ func TestUsageRowsKeepTheClientsAddress(t *testing.T) {
 			t.Fatal("the gateway's usage API told an address to", from, b)
 		}
 	}
+
+	// with MAGPIE_TRUST_PROXY=1, the forwarding header's client address is recorded
+	t.Setenv("MAGPIE_TRUST_PROXY", "1")
+	if c, b := do("POST", "/v1/chat/completions", "172.23.0.2:6000", strings.NewReader(chatReq),
+		"Authorization", "Bearer "+secrets[0], "X-Forwarded-For", "203.0.113.7, 172.23.0.2"); c != 200 {
+		t.Fatal("trusted proxy X-Forwarded-For:", c, b)
+	}
+	if c, b := do("POST", "/v1/chat/completions", "172.23.0.2:6001", strings.NewReader(chatReq),
+		"Authorization", "Bearer "+secrets[0], "X-Real-IP", "198.51.100.42", "X-Forwarded-For", "203.0.113.7"); c != 200 {
+		t.Fatal("trusted proxy X-Real-IP:", c, b)
+	}
+	got = map[string]bool{}
+	for _, r := range usage.Load(time.Time{}) {
+		got[r.ClientIP] = true
+	}
+	if !got["203.0.113.7"] || !got["198.51.100.42"] || got["172.23.0.2"] {
+		t.Fatalf("trusted proxy addresses kept: %v", got)
+	}
 }

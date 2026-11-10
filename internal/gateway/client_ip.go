@@ -2,19 +2,37 @@ package gateway
 
 import (
 	"net/http"
+	"net/netip"
+	"strings"
 
 	"github.com/yetone/magpie/internal/usageapi"
 )
 
 // clientIP is the address a request came from, for its usage row: the
-// connection's own (peerAddr), never a forwarding header, which anyone can
-// write. "" when RemoteAddr isn't an address.
+// forwarding header's client address when MAGPIE_TRUST_PROXY is set, else
+// the connection's own (peerAddr). "" when RemoteAddr isn't an address.
 func clientIP(r *http.Request) string {
+	if trustProxy() {
+		if ip := forwardedIP(r); ip != "" {
+			return ip
+		}
+	}
 	a, ok := peerAddr(r)
 	if !ok || !a.IsValid() {
 		return ""
 	}
 	return a.String()
+}
+
+func forwardedIP(r *http.Request) string {
+	for _, h := range []string{"X-Real-IP", "Cf-Connecting-IP", "True-Client-IP", "X-Forwarded-For"} {
+		for _, part := range strings.Split(r.Header.Get(h), ",") {
+			if a, err := netip.ParseAddr(strings.TrimSpace(part)); err == nil && a.IsValid() {
+				return a.WithZone("").Unmap().String()
+			}
+		}
+	}
+	return ""
 }
 
 // withoutClientIPs is a ledger page with the address each call came from
