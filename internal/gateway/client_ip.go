@@ -24,12 +24,20 @@ func clientIP(r *http.Request) string {
 	return a.String()
 }
 
+// forwardedIP reads the client address set by the immediate reverse proxy:
+// single-value headers first, then the rightmost valid entry of
+// X-Forwarded-For (where the proxy sitting in front of magpie appends the
+// connection's peer address, so a client-supplied XFF prefix cannot spoof it).
 func forwardedIP(r *http.Request) string {
-	for _, h := range []string{"X-Real-IP", "Cf-Connecting-IP", "True-Client-IP", "X-Forwarded-For"} {
-		for _, part := range strings.Split(r.Header.Get(h), ",") {
-			if a, err := netip.ParseAddr(strings.TrimSpace(part)); err == nil && a.IsValid() {
-				return a.WithZone("").Unmap().String()
-			}
+	for _, h := range []string{"X-Real-IP", "Cf-Connecting-IP", "True-Client-IP"} {
+		if a, err := netip.ParseAddr(strings.TrimSpace(r.Header.Get(h))); err == nil && a.IsValid() {
+			return a.WithZone("").Unmap().String()
+		}
+	}
+	parts := strings.Split(r.Header.Get("X-Forwarded-For"), ",")
+	for i := len(parts) - 1; i >= 0; i-- {
+		if a, err := netip.ParseAddr(strings.TrimSpace(parts[i])); err == nil && a.IsValid() {
+			return a.WithZone("").Unmap().String()
 		}
 	}
 	return ""
